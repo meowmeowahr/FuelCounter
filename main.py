@@ -15,63 +15,58 @@ Keybindings:
   R   — reset count
 """
 
+import threading
+import socket
+
 import cv2
+from picamera2 import Picamera2
+from mjpeg_streamer import MjpegServer, Stream
 import numpy as np
 from scipy.spatial.distance import cdist
+
+from flask import Flask, render_template
 
 # ==============================================================
 # CONFIG
 # ==============================================================
-
-CAMERA_INDEX = 1
-FRAME_W      = 640
-FRAME_H      = 480
-TARGET_FPS   = 100
+FRAME_W = 640
+FRAME_H = 400
 BACKLIT      = False
 
 TB_WIN = "Parameters"
+
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # Doesn't actually send data
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    finally:
+        s.close()
+    return ip
+
+app = Flask(__name__)
+
+@app.route('/')
+def hello():
+    return render_template('index.html', ip=get_local_ip())
+
 
 # ==============================================================
 # TRACKBARS
 # ==============================================================
 
-def nothing(_):
-    pass
-
-
-def create_trackbars():
-    cv2.namedWindow(TB_WIN, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(TB_WIN, 420, 520)
-
-    # Detection
-    cv2.createTrackbar("BL Thresh",     TB_WIN, 80,  255, nothing)
-    cv2.createTrackbar("MOG2 Sens",     TB_WIN, 40,  200, nothing)
-    cv2.createTrackbar("MOG2 History",  TB_WIN, 200, 500, nothing)
-
-    # Blob filtering
-    cv2.createTrackbar("Min Radius",    TB_WIN, 8,   150, nothing)
-    cv2.createTrackbar("Max Radius",    TB_WIN, 80,  300, nothing)
-    cv2.createTrackbar("Circularity %", TB_WIN, 55,  100, nothing)  # divide by 100
-
-    # Tracker
-    cv2.createTrackbar("Max Disap.",    TB_WIN, 10,  60,  nothing)
-    cv2.createTrackbar("Match Dist px", TB_WIN, 60,  300, nothing)
-
-    # Count line
-    cv2.createTrackbar("Count Line Y%", TB_WIN, 85,  100, nothing)
-
-
 def get_params():
     return {
-        "backlit_thresh":  cv2.getTrackbarPos("BL Thresh",     TB_WIN),
-        "mog2_sens":       cv2.getTrackbarPos("MOG2 Sens",     TB_WIN),
-        "mog2_history":    max(1, cv2.getTrackbarPos("MOG2 History",  TB_WIN)),
-        "min_radius":      max(1, cv2.getTrackbarPos("Min Radius",    TB_WIN)),
-        "max_radius":      max(2, cv2.getTrackbarPos("Max Radius",    TB_WIN)),
-        "min_circ":        cv2.getTrackbarPos("Circularity %",  TB_WIN) / 100.0,
-        "max_disap":       max(1, cv2.getTrackbarPos("Max Disap.",    TB_WIN)),
-        "match_dist":      max(1, cv2.getTrackbarPos("Match Dist px", TB_WIN)),
-        "count_line_pct":  cv2.getTrackbarPos("Count Line Y%",  TB_WIN),
+        "backlit_thresh":  80,
+        "mog2_sens":       40,
+        "mog2_history":    200,
+        "min_radius":      8,
+        "max_radius":      120,
+        "min_circ":        5.5,
+        "max_disap":       10,
+        "match_dist":      60,
+        "count_line_pct":  85,
     }
 
 
@@ -309,18 +304,25 @@ def draw_overlay(frame, tracks, detections, ball_count, line_y, p):
 def main():
     global BACKLIT
 
-    cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  FRAME_W)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
-    cap.set(cv2.CAP_PROP_FPS,          TARGET_FPS)
-    print(f"Camera FPS reported: {cap.get(cv2.CAP_PROP_FPS)}")
+    cam = Picamera2()
+    config = cam.create_video_configuration(
+        main={"size": (640, 400), "format": "RGB888"},
+        controls={"FrameRate": 240}
+    )
+    cam.configure(config)
+    cam.start()
 
-    ret, frame = cap.read()
-    if not ret:
-        print("ERROR: Could not read from camera.")
-        return
+    stream_cam = Stream("camera", size=(640, 400), quality=70, fps=240)
+    stream_disp = Stream("display", size=(640, 400), quality=70, fps=240)
+    stream_mask = Stream("mask", size=(640, 400), quality=70, fps=240)
 
-    create_trackbars()
+    server = MjpegServer("0.0.0.0", 5000)
+    server.add_stream(stream_cam)
+    server.add_stream(stream_disp)
+    server.add_stream(stream_mask)
+    server.start()
+
+    # create_trackbars()
 
     subtractor    = cv2.createBackgroundSubtractorMOG2(history=200, varThreshold=40, detectShadows=False)
     prev_history  = 200
@@ -329,9 +331,9 @@ def main():
     print("Running.  ESC=quit  B=toggle mode  R=reset count")
 
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+        frame_rgb = cam.capture_array()
+        frame     = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+        stream_cam.set_frame(frame_rgb)
 
         p = get_params()
 
@@ -354,24 +356,30 @@ def main():
         for cx, cy, r in detections:
             cv2.circle(mask_bgr, (cx, cy), r, (0,255,0), 2)
 
-        cv2.imshow("Ball Tracker",    display)
-        cv2.imshow("Detection Mask",  mask_bgr)
+        # cv2.imshow("Ball Tracker",    display)
+        stream_disp.set_frame(display)
+        stream_mask.set_frame(mask)
+        # cv2.imshow("Detection Mask",  mask_bgr)
 
-        key = cv2.waitKey(1) & 0xFF
-        if key == 27:
-            break
-        elif key == ord('b'):
-            BACKLIT = not BACKLIT
-            print(f"Mode → {'BACKLIT' if BACKLIT else 'ROOM LIGHT (MOG2)'}")
-        elif key == ord('r'):
-            tracker.ball_count = 0
-            for t in tracker.tracks:
-                t.counted = False
-            print("Count reset.")
+        # key = cv2.waitKey(1) & 0xFF
+        # if key == 27:
+        #     break
+        # elif key == ord('b'):
+        #     BACKLIT = not BACKLIT
+        #     print(f"Mode → {'BACKLIT' if BACKLIT else 'ROOM LIGHT (MOG2)'}")
+        # elif key == ord('r'):
+        #     tracker.ball_count = 0
+        #     for t in tracker.tracks:
+        #         t.counted = False
+        #     print("Count reset.")
 
+    server.stop()
     cap.release()
     cv2.destroyAllWindows()
 
+def server():
+    app.run(debug=True, use_reloader=False, host="0.0.0.0", port=8080)
 
 if __name__ == "__main__":
+    threading.Thread(target=server, daemon=True).start()
     main()
