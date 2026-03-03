@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any
 import cv2
 
 import warnings
@@ -18,5 +19,5 @@ class AbstractCamera(ABC):
         return frame.shape[1], frame.shape[0]
     
     @property
-    def fps(self) -> int:
+    def fps(self) -> float:
         raise NotImplementedError("Default fps getter is not implemented. Override this method if you want to use it.")

@@ -4,17 +4,147 @@
     <meta charset="UTF-8">
     <title>Fuel Detector | Control</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+    <script>
+        // 1. Declare configSchema in the global scope
+        let configSchema = []; 
+
+        async function loadSchema() {
+            try {
+                const res = await fetch('/api/vision/config', {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                
+                if (res.ok) {
+                    // Update the global variable with fetched data
+                    configSchema = await res.json();
+                } else {
+                    console.warn("Failed to load config schema from API. Using local empty state.");
+                    alert("Failed to load config schema from API.");
+                }
+            } catch (e) { 
+                console.error("Connection error:", e);
+                alert("Error connecting to backend."); 
+            }
+        }
+
+        // 2. Build the UI from the global JSON
+        async function renderConfig() {
+            const container = document.getElementById('config-container');
+            if (!container) return;
+            
+            container.innerHTML = 'Loading configuration...';
+
+            // Wait for the global schema to be populated
+            await loadSchema();
+            
+            container.innerHTML = '';
+
+            configSchema.forEach(sec => {
+                const secEl = document.createElement('div');
+                secEl.innerHTML = `<div class="section-title">${sec.section}</div>`;
+                
+                sec.fields.forEach(field => {
+                    const row = document.createElement('div');
+                    row.className = 'control-group';
+
+                    if (field.type === 'range') {
+                        row.innerHTML = `
+                            <div class="label-row"><span>${field.label}</span><span class="val" id="v-${field.id}">${field.value}</span></div>
+                            <input type="range" id="cfg-${field.id}" min="${field.min}" max="${field.max}" step="${field.step}" value="${field.value}" 
+                                oninput="document.getElementById('v-${field.id}').innerText = this.value">`;
+                    } else if (field.type === 'select') {
+                        row.innerHTML = `
+                            <div class="label-row"><span>${field.label}</span></div>
+                            <select id="cfg-${field.id}">${field.options.map(o => `<option value="${o}" ${o === field.value ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+                    } else if (field.type === 'toggle') {
+                        row.innerHTML = `
+                            <div class="label-row">
+                                <span>${field.label}</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="cfg-${field.id}" ${field.value ? 'checked' : ''}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>`;
+                    }
+                    secEl.appendChild(row);
+                });
+                container.appendChild(secEl);
+            });
+        }
+
+        // 3. Collect data from UI using the global schema reference
+        function getValues() {
+            const data = {};
+            // configSchema is now available here globally
+            configSchema.forEach(sec => {
+                sec.fields.forEach(f => {
+                    const el = document.getElementById(`cfg-${f.id}`);
+                    if (el) {
+                        data[f.id] = f.type === 'toggle' ? el.checked : (f.type === 'range' ? parseFloat(el.value) : el.value);
+                    }
+                });
+            });
+            return data;
+        }
+
+        // 4. API Operations
+        async function saveConfig() {
+            const btn = document.getElementById('save-btn');
+            const data = getValues();
+            console.log("Sending to API:", data);
+
+            try {
+                const res = await fetch('/api/vision/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (res.ok) {
+                    btn.innerText = 'SAVED'; 
+                    btn.classList.add('saved');
+                    setTimeout(() => { 
+                        btn.innerText = 'APPLY'; 
+                        btn.classList.remove('saved'); 
+                    }, 2000);
+                }
+            } catch (e) { 
+                alert("Mock Save Successful (No Backend)"); 
+            }
+            renderConfig(); // Refresh UI with latest values (in case backend modifies them)
+        }
+
+        function updateStream() {
+            const type = document.getElementById('stream-type').value;
+            console.log("Switching stream to:", type);
+            document.getElementById('stream-img').src = `http://{{ip}}:{{video_port}}/${type}?t=${Date.now()}`;
+        }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.nav-item').forEach(el => 
+                el.classList.toggle('active', el.innerText.toLowerCase() === tab)
+            );
+        }
+
+        // Initialize
+        window.onload = () => {
+            renderConfig();
+            updateStream();
+        };
+    </script>
+
     <style>
         :root {
             --bg: #030309; --surface: #0d0d14; --panel: #131319;
-            --border: #222230; --accent: #00e5ff; --accent2: #ff6b00;
+            --border: #222230; --accent: #00e5ff;
             --text: #c8ccd8; --muted: #555570; --good: #00e599;
         }
 
         * { box-sizing: border-box; }
         body { 
             margin: 0; height: 100vh; background: var(--bg); color: var(--text);
-            font-family: 'JetBrains Mono', monospace; display: flex; flex-direction: column;
+            font-family: sans-serif; display: flex; flex-direction: column;
         }
 
         /* Layout */
@@ -55,7 +185,7 @@
         
         /* Dynamic Components */
         .section-title { 
-            padding: 15px 15px 5px; font-size: 10px; color: var(--accent2); 
+            padding: 15px 15px 5px; font-size: 10px; color: var(--accent); 
             text-transform: uppercase; letter-spacing: 1px;
         }
         .control-group { padding: 10px 15px; border-bottom: 1px solid #1a1a24; }
@@ -92,21 +222,21 @@
 <body>
 
     <div class="header">
-        <h1>FUEL DETECTOR</h1>
+        <h1>Fuel Counter</h1>
         <div style="font-size: 11px;">IP: {{ip}}</div>
     </div>
 
     <div class="main">
         <div class="nav">
-            <div class="nav-item active" onclick="switchTab('vision')">VISION</div>
-            <div class="nav-item" onclick="switchTab('networking')">NETWORKING</div>
-            <div class="nav-item" onclick="switchTab('system')">SYSTEM</div>
+            <div class="nav-item active" onclick="switchTab('vision')">Vision</div>
+            <div class="nav-item" onclick="switchTab('networking')">Networking</div>
+            <div class="nav-item" onclick="switchTab('system')">System</div>
         </div>
 
         <div class="content" id="tab-vision">
             <div class="viewport">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <label style="font-size: 11px;">STREAM TYPE:</label>
+                    <label style="font-size: 11px;">Stream:</label>
                     <select id="stream-type" style="width: auto;" onchange="updateStream()">
                         <option value="raw">Raw Feed</option>
                         <option value="visual">Visual Detection</option>
@@ -128,101 +258,5 @@
             </div>
         </div>
     </div>
-
-    <script>
-        // 1. This is the "Source of Truth" for your menu structure
-        const configSchema = [
-            {
-                section: "Detection",
-                fields: [
-                    { id: "confidence", label: "Confidence", type: "range", min: 0, max: 1, step: 0.01, value: 0.55 },
-                    { id: "contour_area", label: "Min Area (px²)", type: "range", min: 50, max: 5000, step: 50, value: 500 },
-                    { id: "mode", label: "Mode", type: "select", options: ["hue_range", "edge_gradient", "combined"], value: "hue_range" }
-                ]
-            },
-        ];
-
-        // 2. Build the UI from JSON
-        function renderConfig(schema) {
-            const container = document.getElementById('config-container');
-            container.innerHTML = '';
-
-            schema.forEach(sec => {
-                const secEl = document.createElement('div');
-                secEl.innerHTML = `<div class="section-title">${sec.section}</div>`;
-                
-                sec.fields.forEach(field => {
-                    const row = document.createElement('div');
-                    row.className = 'control-group';
-
-                    if (field.type === 'range') {
-                        row.innerHTML = `
-                            <div class="label-row"><span>${field.label}</span><span class="val" id="v-${field.id}">${field.value}</span></div>
-                            <input type="range" id="cfg-${field.id}" min="${field.min}" max="${field.max}" step="${field.step}" value="${field.value}" 
-                                oninput="document.getElementById('v-${field.id}').innerText = this.value">`;
-                    } else if (field.type === 'select') {
-                        row.innerHTML = `
-                            <div class="label-row"><span>${field.label}</span></div>
-                            <select id="cfg-${field.id}">${field.options.map(o => `<option value="${o}" ${o === field.value ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
-                    } else if (field.type === 'toggle') {
-                        row.innerHTML = `
-                            <div class="label-row">
-                                <span>${field.label}</span>
-                                <label class="switch">
-                                    <input type="checkbox" id="cfg-${field.id}" ${field.value ? 'checked' : ''}>
-                                    <span class="slider"></span>
-                                </label>
-                            </div>`;
-                    }
-                    secEl.appendChild(row);
-                });
-                container.appendChild(secEl);
-            });
-        }
-
-        // 3. Collect data from UI
-        function getValues() {
-            const data = {};
-            configSchema.forEach(sec => {
-                sec.fields.forEach(f => {
-                    const el = document.getElementById(`cfg-${f.id}`);
-                    data[f.id] = f.type === 'toggle' ? el.checked : (f.type === 'range' ? parseFloat(el.value) : el.value);
-                });
-            });
-            return data;
-        }
-
-        // 4. API Operations
-        async function saveConfig() {
-            const btn = document.getElementById('save-btn');
-            const data = getValues();
-            console.log("Sending to API:", data);
-
-            try {
-                const res = await fetch('/api/vision/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-                if (res.ok) {
-                    btn.innerText = 'SAVED'; btn.classList.add('saved');
-                    setTimeout(() => { btn.innerText = 'APPLY'; btn.classList.remove('saved'); }, 2000);
-                }
-            } catch (e) { alert("Mock Save Successful (No Backend)"); }
-        }
-
-        function updateStream() {
-            const type = document.getElementById('stream-type').value;
-            document.getElementById('stream-img').src = `http://{{ip}}:{{video_port}}/${type}?t=${Date.now()}`;
-        }
-
-        function switchTab(tab) {
-            document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.innerText.toLowerCase() === tab));
-            // In a real app, hide/show different content boxes here
-        }
-
-        // Initialize
-        renderConfig(configSchema);
-    </script>
 </body>
 </html>

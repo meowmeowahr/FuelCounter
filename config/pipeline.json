@@ -1,0 +1,21 @@
+{
+    "hsv_h_min": 21,
+    "hsv_h_max": 73,
+    "hsv_s_min": 179,
+    "hsv_s_max": 255,
+    "hsv_v_min": 80,
+    "hsv_v_max": 255,
+    "min_radius": 17,
+    "max_radius": 300,
+    "max_track_age": 15,
+    "min_down_velocity": 2,
+    "count_line_y": 300,
+    "backlit_mode": false,
+    "backlit_thresh": 80,
+    "mog2_sens": 40,
+    "mog2_history": 200,
+    "min_circ": 0.2,
+    "max_disap": 19,
+    "match_dist": 155,
+    "count_line_pct": 85
+}
