@@ -4,6 +4,7 @@ import cv2
 
 import warnings
 
+
 class AbstractCamera(ABC):
     def __init__(self) -> None:
         super().__init__()
@@ -14,10 +15,20 @@ class AbstractCamera(ABC):
 
     @property
     def resolution(self) -> tuple[int, int]:
-        warnings.warn("Default resolution getter blocks for one frame. Override this method if you want to avoid that.")
+        warnings.warn(
+            "Default resolution getter blocks for one frame. Override this method if you want to avoid that."
+        )
         frame = self.get_frame()
         return frame.shape[1], frame.shape[0]
-    
+
     @property
     def fps(self) -> float:
-        raise NotImplementedError("Default fps getter is not implemented. Override this method if you want to use it.")
+        raise NotImplementedError(
+            "Default fps getter is not implemented. Override this method if you want to use it."
+        )
+
+    def get_config(self) -> dict[str, Any]:
+        return {}
+
+    def save_config(self, config: dict[str, Any]) -> None:
+        pass

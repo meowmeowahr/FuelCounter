@@ -1,4 +1,5 @@
-import enum
+import json
+from pathlib import Path
 import time
 from typing import Any
 import numpy as np
@@ -10,24 +11,59 @@ from server import Server
 from source import AbstractCamera
 
 if __name__ == "__main__":
+
     class PiCamera(AbstractCamera):
         def __init__(self) -> None:
             super().__init__()
 
             self.picam2 = Picamera2()
 
+            self.camera_settings = {
+                "size": [640, 480],
+            }
+            if Path("./config/camera.json").exists():
+                with open(Path("./config/camera.json"), "r") as f:
+                    self.camera_settings.update(json.load(f))
+                with open(Path("./config/camera.json"), "w") as f:
+                    json.dump(self.camera_settings, f, indent=4)
+            else:
+                Path("./config/").mkdir(exist_ok=True, parents=False)
+                Path("./config/camera.json").touch()
+                with open(Path("./config/camera.json"), "w") as f:
+                    json.dump(self.camera_settings, f, indent=4)
+
             # Configure for RGB frames (OpenCV compatible)
             config = self.picam2.create_video_configuration(
-                main={"size": (640, 480), "format": "RGB888"},
-                controls={"FrameRate": 30}
+                main={"size": self.camera_settings["size"], "format": "BGR888"},
+                controls={"FrameRate": 200},
             )
 
-            self.picam2.configure(config)
             self._modes = self.picam2.sensor_modes
+            self.picam2.stop()
+            self.picam2.configure(config)
             self.picam2.start()
+
+            print(self._modes)
 
             # Give sensor time to warm up
             time.sleep(0.5)
+
+        def get_config(self) -> dict[str, Any]:
+            return self.camera_settings
+
+        def save_config(self, config: dict[str, Any]) -> None:
+            self.camera_settings.update(config)
+            with open(Path("./config/camera.json"), "w") as f:
+                json.dump(self.camera_settings, f, indent=4)
+
+            # Reconfigure camera with new settings
+            config = self.picam2.create_video_configuration(
+                main={"size": self.camera_settings["size"], "format": "BGR888"},
+                controls={"FrameRate": 200},
+            )
+            self.picam2.stop()
+            self.picam2.configure(config)
+            self.picam2.start()
 
         def get_frame(self) -> np.ndarray:
             frame = self.picam2.capture_array()
@@ -46,52 +82,11 @@ if __name__ == "__main__":
 
         @property
         def fps(self) -> int:
+            return 90
             metadata = self.picam2.capture_metadata()
             if "FrameDuration" in metadata:
                 return int(1_000_000 / metadata["FrameDuration"])
             raise RuntimeError("Failed to get frame duration from metadata")
-        
-        @property
-        def modes(self) -> list[dict[str, Any]]:
-            return [{"res": m["size"], "fps": m["fps"]} for m in self._modes]
-        
-        @property
-        def mode(self) -> str:
-            config = self.picam2.camera_configuration()
-            size = config["main"]["size"]
-            fps = self.fps
-            return f"{size[0]}x{size[1]}@{fps}"
-        
-        def set_mode(self, mode: str) -> None:
-            # Parse mode string (e.g., "640x480@30")
-            res_str, fps_str = mode.split("@")
-            width, height = map(int, res_str.split("x"))
-            fps = float(fps_str)
-
-            config = self.picam2.create_video_configuration(
-                main={"size": (width, height), "format": "BGR888"},
-                controls={"FrameRate": fps}
-            )
-            self.picam2.stop()
-            self.picam2.configure(config)
-            self.picam2.start()
-
-        def dump(self) -> dict:
-            controls = self.picam2.camera_config["controls"]
-            main = self.picam2.camera_config["main"]
-
-            print(controls)
-            print(main)
-
-            data = {
-                "controls": {
-
-                },
-                "main": main
-            }
-
-            return data
-
 
     camera = PiCamera()
     server = Server(camera)

@@ -1,12 +1,6 @@
 {
-    "size": [640, 480],
-    "fps": 0,
-    "exposure_us": 33167,
-    "analogue_gain": 7.8125,
-    "white_balance_gains": [
-        1.0067237615585327,
-        2.4531242847442627
-    ],
-    "auto_exposure_enabled": false,
-    "contrast": 1.0
+    "size": [
+        640,
+        480
+    ]
 }

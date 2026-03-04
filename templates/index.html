@@ -2,142 +2,50 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Fuel Detector | Control</title>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <title>Fuel Counter</title>
 
     <script>
-        // 1. Declare configSchema in the global scope
-        let configSchema = []; 
-
-        async function loadSchema() {
-            try {
-                const res = await fetch('/api/vision/config', {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' },
-                });
-                
-                if (res.ok) {
-                    // Update the global variable with fetched data
-                    configSchema = await res.json();
-                } else {
-                    console.warn("Failed to load config schema from API. Using local empty state.");
-                    alert("Failed to load config schema from API.");
-                }
-            } catch (e) { 
-                console.error("Connection error:", e);
-                alert("Error connecting to backend."); 
-            }
-        }
-
-        // 2. Build the UI from the global JSON
-        async function renderConfig() {
-            const container = document.getElementById('config-container');
-            if (!container) return;
-            
-            container.innerHTML = 'Loading configuration...';
-
-            // Wait for the global schema to be populated
-            await loadSchema();
-            
-            container.innerHTML = '';
-
-            configSchema.forEach(sec => {
-                const secEl = document.createElement('div');
-                secEl.innerHTML = `<div class="section-title">${sec.section}</div>`;
-                
-                sec.fields.forEach(field => {
-                    const row = document.createElement('div');
-                    row.className = 'control-group';
-
-                    if (field.type === 'range') {
-                        row.innerHTML = `
-                            <div class="label-row"><span>${field.label}</span><span class="val" id="v-${field.id}">${field.value}</span></div>
-                            <input type="range" id="cfg-${field.id}" min="${field.min}" max="${field.max}" step="${field.step}" value="${field.value}" 
-                                oninput="document.getElementById('v-${field.id}').innerText = this.value">`;
-                    } else if (field.type === 'select') {
-                        row.innerHTML = `
-                            <div class="label-row"><span>${field.label}</span></div>
-                            <select id="cfg-${field.id}">${field.options.map(o => `<option value="${o}" ${o === field.value ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
-                    } else if (field.type === 'toggle') {
-                        row.innerHTML = `
-                            <div class="label-row">
-                                <span>${field.label}</span>
-                                <label class="switch">
-                                    <input type="checkbox" id="cfg-${field.id}" ${field.value ? 'checked' : ''}>
-                                    <span class="slider"></span>
-                                </label>
-                            </div>`;
-                    }
-                    secEl.appendChild(row);
-                });
-                container.appendChild(secEl);
-            });
-        }
-
-        // 3. Collect data from UI using the global schema reference
-        function getValues() {
-            const data = {};
-            // configSchema is now available here globally
-            configSchema.forEach(sec => {
-                sec.fields.forEach(f => {
-                    const el = document.getElementById(`cfg-${f.id}`);
-                    if (el) {
-                        data[f.id] = f.type === 'toggle' ? el.checked : (f.type === 'range' ? parseFloat(el.value) : el.value);
-                    }
-                });
-            });
-            return data;
-        }
-
-        // 4. API Operations
-        async function saveConfig() {
-            const btn = document.getElementById('save-btn');
-            const data = getValues();
-            console.log("Sending to API:", data);
-
-            try {
-                const res = await fetch('/api/vision/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-                if (res.ok) {
-                    btn.innerText = 'SAVED'; 
-                    btn.classList.add('saved');
-                    setTimeout(() => { 
-                        btn.innerText = 'APPLY'; 
-                        btn.classList.remove('saved'); 
-                    }, 2000);
-                }
-            } catch (e) { 
-                alert("Mock Save Successful (No Backend)"); 
-            }
-            renderConfig(); // Refresh UI with latest values (in case backend modifies them)
-        }
-
         function updateStream() {
             const type = document.getElementById('stream-type').value;
             console.log("Switching stream to:", type);
             document.getElementById('stream-img').src = `http://{{ip}}:{{video_port}}/${type}?t=${Date.now()}`;
+        }
+        
+        async function refreshNumber() {
+            try {
+                const response = await fetch("/api/count", {method: "GET"});
+                var number = await response.text();
+            } catch (error) {
+                console.error(error);
+                var number = "?";
+            }
+            document.querySelectorAll("#number").forEach(element => {
+                element.innerHTML = number;
+            });
         }
 
         function switchTab(tab) {
             document.querySelectorAll('.nav-item').forEach(el => 
                 el.classList.toggle('active', el.innerText.toLowerCase() === tab)
             );
+            document.querySelectorAll(".content").forEach(el =>
+                el.classList.toggle('active', el.id === "tab-" + tab)
+            )
         }
 
         // Initialize
         window.onload = () => {
-            renderConfig();
             updateStream();
+            refreshNumber();
         };
+
+        setInterval(refreshNumber, 250);
     </script>
 
     <style>
         :root {
             --bg: #030309; --surface: #0d0d14; --panel: #131319;
-            --border: #222230; --accent: #00e5ff;
+            --border: #222230; --accent: #97f5ff;
             --text: #c8ccd8; --muted: #555570; --good: #00e599;
         }
 
@@ -163,8 +71,11 @@
         .nav-item:hover { background: #1a1a24; }
         .nav-item.active { border-color: var(--accent); color: var(--accent); background: #0d1a1f; }
 
-        .content { flex: 1; display: flex; overflow: hidden; }
-        .viewport { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+        .content { flex: 1; overflow: hidden; display: none; }
+        .content.active {
+            display: flex !important;
+        }
+        .viewport { flex: 1; padding: 20px; display: flex; flex-direction: column; }
         .img-wrap { 
             flex: 1; background: #000; border: 1px solid var(--border); 
             display: flex; justify-content: center; align-items: center; overflow: hidden;
@@ -172,21 +83,12 @@
         .img-wrap img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
         /* Config Sidebar */
-        .config-sidebar { 
+        .sidebar { 
             width: 300px; background: var(--surface); border-left: 1px solid var(--border); 
             display: flex; flex-direction: column;
-        }
-        .config-header { 
-            padding: 15px; border-bottom: 1px solid var(--border); 
-            display: flex; justify-content: space-between; align-items: center;
-            position: sticky; top: 0; background: var(--surface);
-        }
-        .config-scroll { flex: 1; overflow-y: auto; padding-bottom: 30px; }
-        
-        /* Dynamic Components */
-        .section-title { 
-            padding: 15px 15px 5px; font-size: 10px; color: var(--accent); 
-            text-transform: uppercase; letter-spacing: 1px;
+                justify-content: center;
+    align-items: center;
+    container-type: inline-size;
         }
         .control-group { padding: 10px 15px; border-bottom: 1px solid #1a1a24; }
         .label-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 8px; }
@@ -198,25 +100,27 @@
             padding: 6px; border-radius: 4px; font-family: inherit; font-size: 11px;
         }
 
-        /* Toggle Switch */
-        .switch { position: relative; width: 34px; height: 18px; }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        .slider { 
-            position: absolute; cursor: pointer; inset: 0; background: var(--border); 
-            transition: .3s; border-radius: 20px; 
-        }
-        .slider:before { 
-            content: ""; position: absolute; height: 12px; width: 12px; left: 3px; bottom: 3px; 
-            background: var(--muted); transition: .3s; border-radius: 50%;
-        }
-        input:checked + .slider { background: rgba(0, 229, 255, 0.2); }
-        input:checked + .slider:before { transform: translateX(16px); background: var(--accent); }
-
         .btn { 
             background: var(--accent); border: none; padding: 6px 12px; font-weight: 600; 
             cursor: pointer; border-radius: 3px; font-size: 10px; transition: 0.3s;
+            margin: 6px;
         }
         .btn.saved { background: var(--good); color: #000; }
+
+        .sidebar-number {
+            font-size: 42cqi;
+            font-family: sans-serif;
+        }
+
+        .large-number-container {
+            justify-content: center;
+            align-items: center;
+        }
+
+        .large-number {
+            font-size: 36vw;
+            margin: 0;
+        }
     </style>
 </head>
 <body>
@@ -229,11 +133,12 @@
     <div class="main">
         <div class="nav">
             <div class="nav-item active" onclick="switchTab('vision')">Vision</div>
-            <div class="nav-item" onclick="switchTab('networking')">Networking</div>
-            <div class="nav-item" onclick="switchTab('system')">System</div>
+            <div class="nav-item" onclick="switchTab('number')">Number</div>
+            <div class="nav-item" onclick="switchTab('config')">Config</div>
+            <div class="nav-item" onclick="switchTab('stats')">Stats</div>
         </div>
 
-        <div class="content" id="tab-vision">
+        <div class="content active" id="tab-vision">
             <div class="viewport">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <label style="font-size: 11px;">Stream:</label>
@@ -248,14 +153,177 @@
                 </div>
             </div>
 
-            <div class="config-sidebar">
-                <div class="config-header">
-                    <span style="font-size: 11px; font-weight: 600;">PARAMETERS</span>
-                    <button class="btn" id="save-btn" onclick="saveConfig()">APPLY</button>
-                </div>
-                <div class="config-scroll" id="config-container">
-                    </div>
+            <div class="sidebar">
+                <p class="sidebar-number" id="number">0</p>
             </div>
+        </div>
+
+        <div class="content" id="tab-number">
+            <div class="viewport large-number-container">
+                <h1 class="large-number" id="number">0</h1>
+            </div>
+        </div>
+        <div class="content" id="tab-config">
+            <div class="viewport" id="editor-container" style="padding: 0;">
+                <div id="tab-bar" style="display:flex; background:#2d2d2d; border-bottom:1px solid #444;">
+                    <div class="tab active" data-name="camera">camera.json</div>
+                    <div class="tab" data-name="pipeline">pipeline.json</div>
+                    <div class="tab" data-name="stream">stream.json</div>
+                    <div style="flex: 999;"></div>
+                    <button id="save-btn" class="btn">Save</button>
+                </div>
+
+                <div id="editor" style="flex:1; position:relative;"></div>
+            </div>
+
+            <script src="/static/monaco/vs/loader.js"></script>
+
+            <style>
+                .tab {
+                    padding: 8px 14px;
+                    cursor: pointer;
+                    color: #ccc;
+                    user-select: none;
+                    position: relative;
+                }
+
+                .tab:hover {
+                    background: #3a3a3a;
+                }
+
+                .tab.active {
+                    background: #1e1e1e;
+                    color: white;
+                }
+
+                .tab.dirty::after {
+                    content: "●";
+                    color: orange;
+                    position: absolute;
+                    top: 4px;
+                    right: 4px;
+                    font-size: 10px;
+                }
+
+            </style>
+
+            <script>
+                let editor;
+                const models = {};
+                const dirtyFlags = {}; // track unsaved changes per model
+                let currentTab = "camera";
+
+                require.config({
+                    paths: { vs: "/static/monaco/vs" }
+                });
+
+                require(["vs/editor/editor.main"], function () {
+
+                    monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+                        validate: true,
+                        allowComments: true
+                    });
+
+                    // Create models for each config
+                    ["camera","pipeline","stream"].forEach(name => {
+                        models[name] = monaco.editor.createModel("{}", "json");
+                        dirtyFlags[name] = false;
+
+                        // Track changes to set dirty flag
+                        models[name].onDidChangeContent(() => {
+                            if (!dirtyFlags[name]) {
+                                dirtyFlags[name] = true;
+                                updateTabIndicator(name);
+                            }
+                        });
+                    });
+
+                    // Create the editor
+                    editor = monaco.editor.create(
+                        document.getElementById("editor"),
+                        {
+                            model: models.camera,
+                            theme: "vs-dark",
+                            automaticLayout: true,
+                            minimap: { enabled: false }
+                        }
+                    );
+
+                    setupTabs();
+                    setupSaveButton();
+                    loadAllConfigs();
+                });
+
+                function setupTabs() {
+                    document.querySelectorAll(".tab").forEach(tab => {
+                        tab.addEventListener("click", (e) => {
+                            const name = tab.dataset.name;
+                            switchEditorTab(name, e.target);
+                        });
+                    });
+                }
+
+                function switchEditorTab(name, tabElement) {
+                    currentTab = name;
+                    editor.setModel(models[name]);
+
+                    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+                    tabElement.classList.add("active");
+                }
+
+                function updateTabIndicator(name) {
+                    const tab = document.querySelector(`.tab[data-name="${name}"]`);
+                    if (dirtyFlags[name]) tab.classList.add("dirty");
+                    else tab.classList.remove("dirty");
+                }
+
+                function setupSaveButton() {
+                    document.getElementById("save-btn").addEventListener("click", async () => {
+                        const name = currentTab;
+
+                        let parsed;
+                        try {
+                            parsed = JSON.parse(models[name].getValue());
+                        } catch (e) {
+                            return;
+                        }
+
+                        try {
+                            await fetch(`/api/config/${name}`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ content: parsed })
+                            });
+
+                            dirtyFlags[name] = false;
+                            updateTabIndicator(name);
+
+                        } catch (e) {
+                            console.error(e);
+                        }
+                    });
+                }
+
+                async function loadAllConfigs() {
+                    for (const name of Object.keys(models)) {
+                        try {
+                            const res = await fetch(`/api/config/${name}`);
+                            const data = await res.json();
+
+                            const jsonString = JSON.stringify(data.content ?? data, null, 4);
+                            models[name].setValue(jsonString);
+                            dirtyFlags[name] = false;
+                            updateTabIndicator(name);
+
+                        } catch (e) {
+                            console.error("Load error:", e);
+                            models[name].setValue('{\n    "error": "Failed to load"\n}');
+                            dirtyFlags[name] = false;
+                            updateTabIndicator(name);
+                        }
+                    }
+                }
+            </script>
         </div>
     </div>
 </body>

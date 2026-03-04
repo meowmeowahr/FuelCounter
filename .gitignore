@@ -8,3 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Monaco
+/static/monaco/
+
+# Config
+/config/*.json
